@@ -3,6 +3,9 @@
 #if defined(Q_OS_MACOS)
 #include "osx_helper.h"
 #endif
+#if defined(Q_OS_WIN32)
+#include <Objbase.h>
+#endif
 
 IconCache::IconCache(QObject *parent) : QObject(parent) {
   mFileIcon = QFileIconProvider().icon(QFileIconProvider::File);
@@ -35,7 +38,7 @@ void IconCache::getIcon(Item *item, const QPersistentModelIndex &parent) {
                        FILE_ATTRIBUTE_NORMAL, &info, sizeof(info),
                        SHGFI_ICON | SHGFI_USEFILEATTRIBUTES) &&
         info.hIcon) {
-      icon = QtWin::fromHICON(info.hIcon);
+      icon = QPixmap::fromImage(QImage::fromHICON(info.hIcon));
       DestroyIcon(info.hIcon);
     }
 #elif defined(Q_OS_MACOS)

@@ -1,6 +1,15 @@
 @echo off
 setlocal enabledelayedexpansion
 
+REM set VS_DIR=c:\Program Files (x86)\Microsoft Visual Studio\2019\Community
+REM set CMAKEGEN="Visual Studio 16 2019"
+set VS_DIR=c:\Program Files\Microsoft Visual Studio\2022\Professional
+set CMAKEGEN="Visual Studio 17 2022"
+set QT=%~dp0..\..\qt-6.9.0
+
+set CMAKE_BIN=%~dp0..\..\cmake-3.27.7-windows-x86_64\bin
+set PATH=%PATH%;%CMAKE_BIN%
+
 if "%1" == "" (
   echo Please specify x86 ^(32-bit^) or x64 ^(64-bit^) architecture in cmdline
   goto :eof
@@ -15,18 +24,17 @@ if %BOTH% == 1  (
 )
 
 set ARCH=%1
-call "c:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvarsall.bat" %ARCH%
+call "%VS_DIR%\VC\Auxiliary\Build\vcvarsall.bat" %ARCH%
 
-if "%ARCH%" == "x86" (
-set QT=C:\Qt\5.13.2\msvc2017\
-) else (
-set QT=C:\Qt\5.13.2\msvc2017_64\
-)
+REM if "%ARCH%" == "x86" (
+REM set QT=C:\Qt\5.13.2\msvc2017\
+REM ) else (
+REM set QT=C:\Qt\5.13.2\msvc2017_64\
+REM )
 set PATH=%QT%\bin;%PATH%
 
 set ROOT="%~dp0.."
 set BUILD="%~dp0..\build\build\release"
-set CMAKEGEN="Visual Studio 16 2019"
 
 set /p VERSION=<"%ROOT%\VERSION"
 
@@ -74,7 +82,8 @@ copy "%ROOT%\CHANGELOG.md" "%TARGET%\Changelog.md"
 copy "%ROOT%\LICENSE" "%TARGET%\License.txt"
 copy "%BUILD%\RcloneBrowser.exe" "%TARGET%"
 
-windeployqt.exe --no-translations --no-angle --no-compiler-runtime --no-svg "%TARGET%\RcloneBrowser.exe"
+REM windeployqt.exe --no-translations --no-angle --no-compiler-runtime --no-svg "%TARGET%\RcloneBrowser.exe"
+windeployqt.exe --no-translations --no-compiler-runtime "%TARGET%\RcloneBrowser.exe"
 rd /s /q "%TARGET%\imageformats"
 
 rem include all MSVCruntime dlls

@@ -11,6 +11,10 @@
 #ifdef Q_OS_MACOS
 #include "osx_helper.h"
 #endif
+#ifdef Q_OS_WIN
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 
 MainWindow::MainWindow() {
   ui.setupUi(this);
@@ -21,8 +25,8 @@ MainWindow::MainWindow() {
     this->setWindowTitle("Rclone Browser");
   }
 
-#if defined(Q_OS_WIN)
-  // disable "?" WindowContextHelpButton
+#if defined(Q_OS_WIN) &&  (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
+  // disable "?" WindowContextHelpButton. Disabled by default on Qt6.
   QApplication::setAttribute(Qt::AA_DisableWindowContextHelpButton);
 #endif
 
