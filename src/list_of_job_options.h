@@ -21,8 +21,10 @@ signals:
 private:
   static ListOfJobOptions *SavedJobOptions;
   static const QString persistenceFileName;
+  static const QString persistenceFileNameJSON;
   static bool RestoreFromUserData(ListOfJobOptions &dataIn);
   static QFile *GetPersistenceFile(QIODevice::OpenModeFlag mode);
+  static QFile* GetPersistenceFileJSON(QIODevice::OpenModeFlag mode);
 
   QList<JobOptions *> tasks;
   bool PersistToUserData();

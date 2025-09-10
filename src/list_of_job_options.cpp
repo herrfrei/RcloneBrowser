@@ -12,8 +12,12 @@ static QDataStream &operator>>(QDataStream &in, JobOptions::SyncTiming &e);
 static QDataStream &operator>>(QDataStream &in, JobOptions::CompareOption &e);
 static QDataStream &operator>>(QDataStream &in, JobOptions::JobType &e);
 
+static QJsonObject ToJson(JobOptions& jo);
+static JobOptions FromJson(const QJsonObject& data);
+
 ListOfJobOptions *ListOfJobOptions::SavedJobOptions = nullptr;
 const QString ListOfJobOptions::persistenceFileName = "tasks.bin";
+const QString ListOfJobOptions::persistenceFileNameJSON = "tasks.json";
 
 ListOfJobOptions::ListOfJobOptions() {}
 
@@ -95,7 +99,77 @@ QFile *ListOfJobOptions::GetPersistenceFile(QIODevice::OpenModeFlag mode) {
   return file;
 }
 
+QFile* ListOfJobOptions::GetPersistenceFileJSON(QIODevice::OpenModeFlag mode) {
+    QDir outputDir;
+    
+    if (IsPortableMode()) {
+        // in portable mode tasks' file will be saved in the same folder as
+        // excecutable
+#ifdef Q_OS_MACOS
+    // on macOS excecutable file is located in
+    // ./rclone-browser.app/Contents/MasOS/
+    // to get actual bundle folder we have
+    // to traverse three levels up
+        outputDir = QDir(qApp->applicationDirPath() + "/../../..");
+#else
+#ifdef Q_OS_WIN
+    // not macOS
+        outputDir = QDir(qApp->applicationDirPath());
+#else
+        QString xdg_config_home = qgetenv("XDG_CONFIG_HOME");
+        outputDir = QDir(xdg_config_home + "/rclone-browser");
+#endif
+#endif
+
+    }
+    else {
+
+        // get data location folder from Qt  - OS dependend
+        outputDir =
+            QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
+    }
+
+    if (!outputDir.exists()) {
+        outputDir.mkpath(".");
+    }
+    QString filePath = outputDir.absoluteFilePath(persistenceFileNameJSON);
+    QFile* file = new QFile(filePath);
+
+    if (!file->open(mode)) {
+        //    qDebug() << QString("Could not open ") << file->fileName();
+        delete file;
+        file = nullptr;
+    }
+    return file;
+}
+
 bool ListOfJobOptions::RestoreFromUserData(ListOfJobOptions &dataIn) {
+	// check for JSON file first
+	QFile* fileJSON = GetPersistenceFileJSON(QIODevice::ReadOnly);
+	if (fileJSON != nullptr) {
+		QByteArray fileData = fileJSON->readAll();
+		fileJSON->close();
+		delete fileJSON;
+		QJsonDocument jdoc = QJsonDocument::fromJson(fileData);
+        if (jdoc.isArray()) {
+            QJsonArray jarray = jdoc.array();
+            for (const QJsonValue& jvalue : jarray) {
+                if (jvalue.isObject()) {
+                    try {
+                        JobOptions* jo = new JobOptions();
+                        *jo = FromJson(jvalue.toObject());
+                        dataIn.tasks.append(jo);
+                    }
+                    catch (SerializationException& ex) {
+                        //      qDebug() << QString("failed to restore tasks: ") << ex.Message;
+                        return false;
+                    }
+                }
+            }
+            return true;
+		}
+	}
+	// Read old style binary file
   QFile *file = GetPersistenceFile(QIODevice::ReadOnly);
   if (file == nullptr)
     return false;
@@ -122,16 +196,16 @@ bool ListOfJobOptions::RestoreFromUserData(ListOfJobOptions &dataIn) {
 }
 
 bool ListOfJobOptions::PersistToUserData() {
-  QFile *file = GetPersistenceFile(
-      QIODevice::WriteOnly); // note this mode implies Truncate also
+  QFile* file = GetPersistenceFileJSON(QIODevice::WriteOnly);
   if (file == nullptr)
     return false;
-  QDataStream outstream(file);
-  outstream.setVersion(QDataStream::Qt_5_2);
 
-  for (JobOptions *it : tasks) {
-    outstream << *it;
+  QJsonArray jarray;
+  for (JobOptions* it : tasks) {
+    jarray.push_back(ToJson(*it));
   }
+  QJsonDocument jdoc(jarray);
+  file->write(jdoc.toJson());  
 
   file->flush();
   file->close();
@@ -143,6 +217,88 @@ bool ListOfJobOptions::PersistToUserData() {
   return true;
 }
 
+QJsonObject ToJson(JobOptions& jo) {
+    QJsonObject jobject;
+    jobject["Version"] = JobOptions::classVersion;
+    jobject["Name"] = jo.myName();
+    jobject["Description"] = jo.description;
+	jobject["JobType"] = static_cast<int>(jo.jobType);
+	jobject["Operation"] = static_cast<int>(jo.operation);
+	// jobject["DryRun"] = jo.dryRun;
+	jobject["Sync"] = jo.sync;
+	jobject["SyncTiming"] = static_cast<int>(jo.syncTiming);
+	jobject["SkipNewer"] = jo.skipNewer;
+	jobject["SkipExisting"] = jo.skipExisting;
+	jobject["Compare"] = jo.compare;
+	jobject["CompareOption"] = static_cast<int>(jo.compareOption);
+	jobject["Verbose"] = jo.verbose;
+	jobject["SameFilesystem"] = jo.sameFilesystem;
+	jobject["DontUpdateModified"] = jo.dontUpdateModified;
+	jobject["Transfers"] = jo.transfers;
+	jobject["Checkers"] = jo.checkers;
+	jobject["Bandwidth"] = jo.bandwidth;
+	jobject["MinSize"] = jo.minSize;
+	jobject["MinAge"] = jo.minAge;        
+	jobject["MaxAge"] = jo.maxAge;
+	jobject["MaxDepth"] = jo.maxDepth;
+	jobject["ConnectTimeout"] = jo.connectTimeout;
+	jobject["IdleTimeout"] = jo.idleTimeout;
+	jobject["Retries"] = jo.retries;
+	jobject["LowLevelRetries"] = jo.lowLevelRetries;
+	jobject["DeleteExcluded"] = jo.deleteExcluded;
+	jobject["Excluded"] = jo.excluded;
+	jobject["Extra"] = jo.extra;
+	jobject["DriveSharedWithMe"] = jo.DriveSharedWithMe;
+	jobject["Source"] = jo.source;
+	jobject["Dest"] = jo.dest;
+	jobject["IsFolder"] = jo.isFolder;
+	jobject["UniqueId"] = jo.uniqueId.toString();
+
+    return jobject;
+}
+
+JobOptions FromJson(const QJsonObject& jobject) {
+    JobOptions jo;
+    int version = jobject["Version"].toInt();
+    if (version > JobOptions::classVersion) {
+        throw SerializationException("Stored version is newer");
+    }
+    jo.description = jobject["Description"].toString();
+    jo.jobType = static_cast<JobOptions::JobType>(jobject["JobType"].toInt());
+    jo.operation = static_cast<JobOptions::Operation>(jobject["Operation"].toInt());
+    // jo.dryRun = jobject["DryRun"].toBool();
+    jo.sync = jobject["Sync"].toBool();
+    jo.syncTiming = static_cast<JobOptions::SyncTiming>(jobject["SyncTiming"].toInt());
+    jo.skipNewer = jobject["SkipNewer"].toBool();
+    jo.skipExisting = jobject["SkipExisting"].toBool();
+    jo.compare = jobject["Compare"].toBool();
+    jo.compareOption = static_cast<JobOptions::CompareOption>(jobject["CompareOption"].toInt());
+    jo.verbose = jobject["Verbose"].toBool();
+    jo.sameFilesystem = jobject["SameFilesystem"].toBool();
+    jo.dontUpdateModified = jobject["DontUpdateModified"].toBool();
+    jo.transfers = jobject["Transfers"].toString();
+    jo.checkers = jobject["Checkers"].toString();
+    jo.bandwidth = jobject["Bandwidth"].toString();
+    jo.minSize = jobject["MinSize"].toString();
+    jo.minAge = jobject["MinAge"].toString();
+    jo.maxAge = jobject["MaxAge"].toString();
+    jo.maxDepth = jobject["MaxDepth"].toInt();
+    jo.connectTimeout = jobject["ConnectTimeout"].toString();
+    jo.idleTimeout = jobject["IdleTimeout"].toString();
+    jo.retries = jobject["Retries"].toString();
+    jo.lowLevelRetries = jobject["LowLevelRetries"].toString();
+
+    jo.deleteExcluded = jobject["DeleteExcluded"].toBool();
+    jo.excluded = jobject["Excluded"].toString();
+    jo.extra = jobject["Extra"].toString();
+    jo.DriveSharedWithMe = jobject["DriveSharedWithMe"].toBool();
+    jo.source = jobject["Source"].toString();
+    jo.dest = jobject["Dest"].toString();
+    jo.isFolder = jobject["IsFolder"].toBool();
+    jo.uniqueId = QUuid(jobject["UniqueId"].toString());
+    return jo;
+}
+    
 QDataStream &operator<<(QDataStream &stream, JobOptions &jo) {
   stream << jo.myName() << JobOptions::classVersion << jo.description
          << jo.jobType << jo.operation << /* jo.dryRun <<*/ jo.sync
